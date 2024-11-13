@@ -9,7 +9,6 @@ CREATE TABLE public.vendedor (
 );
 
 
-
 CREATE TABLE public.cliente (
     cliente_id SERIAL PRIMARY KEY,
     nome_cliente VARCHAR(100) NOT NULL,
@@ -56,9 +55,11 @@ CREATE TABLE public.simulacao (
     vencimento_proposta DATE NOT NULL
 );
 
-CREATE TABLE public.resultado (
-    resultado_id SERIAL PRIMARY KEY,
-    simulacao_id INTEGER NOT NULL REFERENCES public.simulacao(simulacao_id) ON DELETE CASCADE,
+
+CREATE TABLE resultado_unificado (
+    resultado_id SERIAL PRIMARY KEY, -- Alterado de 'id' para 'resultado_id'
+    simulacao_id INTEGER NOT NULL REFERENCES simulacao(simulacao_id) ON DELETE CASCADE,
+
     -- Crédito Entregue
     credito_entregue NUMERIC(10, 2) NOT NULL DEFAULT 0,
 
@@ -67,30 +68,35 @@ CREATE TABLE public.resultado (
     percentual_lance NUMERIC(5, 2) NOT NULL DEFAULT 0,
 
     -- Com Seguro
-    parcela_reduzida_com_seguro NUMERIC(10, 2) DEFAULT NULL,
-    parcela_normal_com_seguro NUMERIC(10, 2) DEFAULT NULL,
+    parcela_com_seguro NUMERIC(10, 2) DEFAULT NULL,
     primeira_parcela_antecipacao_com_seguro NUMERIC(10, 2) DEFAULT NULL,
 
     -- Sem Seguro
-    parcela_reduzida_sem_seguro NUMERIC(10, 2) DEFAULT NULL,
-    parcela_normal_sem_seguro NUMERIC(10, 2) DEFAULT NULL,
+    parcela_sem_seguro NUMERIC(10, 2) DEFAULT NULL,
     primeira_parcela_antecipacao_sem_seguro NUMERIC(10, 2) DEFAULT NULL,
 
-    -- Opcao 1
-    prazo_atualizado INTEGER DEFAULT NULL,
+    -- Prazos
+    prazo_atualizado INTEGER DEFAULT NULL CHECK (prazo_atualizado >= 0), -- Validação
     valor_abatido_parcela NUMERIC(10, 2) DEFAULT NULL,
     parcela_atualizada_com_seguro NUMERIC(10, 2) DEFAULT NULL,
     parcela_atualizada_sem_seguro NUMERIC(10, 2) DEFAULT NULL,
-
-    -- Opcao 2
-    n_parcelas_abatidas_com_seguro INTEGER DEFAULT NULL,
-    n_parcelas_abatidas_sem_seguro INTEGER DEFAULT NULL,
-    prazo_atualizado_com_abatimento_com_seguro INTEGER DEFAULT NULL,
-    prazo_atualizado_com_abatimento_sem_seguro INTEGER DEFAULT NULL,
+    n_parcelas_abatidas_com_seguro INTEGER DEFAULT NULL CHECK (n_parcelas_abatidas_com_seguro >= 0), -- Validação
+    n_parcelas_abatidas_sem_seguro INTEGER DEFAULT NULL CHECK (n_parcelas_abatidas_sem_seguro >= 0), -- Validação
+    prazo_atualizado_com_abatimento_com_seguro INTEGER DEFAULT NULL CHECK (prazo_atualizado_com_abatimento_com_seguro >= 0), -- Validação
+    prazo_atualizado_com_abatimento_sem_seguro INTEGER DEFAULT NULL CHECK (prazo_atualizado_com_abatimento_sem_seguro >= 0), -- Validação
 
     -- Taxas
     custo_efetivo_total NUMERIC(10, 2) DEFAULT NULL,
     taxa_efetivo_mensal NUMERIC(5, 2) DEFAULT NULL,
     valor_seguro_mensal NUMERIC(10, 2) DEFAULT NULL,
-    valor_seguro_total NUMERIC(10, 2) DEFAULT NULL
+    valor_seguro_total NUMERIC(10, 2) DEFAULT NULL,
+
+    -- Campos específicos para Planos Reduzidos
+    parcela_reduzida_com_seguro NUMERIC(10, 2) DEFAULT NULL,
+    parcela_reduzida_sem_seguro NUMERIC(10, 2) DEFAULT NULL,
+    parcela_normal_com_seguro NUMERIC(10, 2) DEFAULT NULL,
+    parcela_normal_sem_seguro NUMERIC(10, 2) DEFAULT NULL,
+
+    -- Campos específicos para Alpha
+    valor_antecipacao NUMERIC(10, 2) DEFAULT NULL
 );
