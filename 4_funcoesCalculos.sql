@@ -1,22 +1,57 @@
-/* PARCELA COM SEGURO */
+-- 1
 CREATE OR REPLACE FUNCTION calc_parcela_com_seguro(
     valor_credito NUMERIC(10, 2),
     taxa_administracao NUMERIC(6, 5),
     fundo_reserva NUMERIC(6, 5),
     seguro_vida_parcela NUMERIC(6, 5),
     taxa_antecipacao NUMERIC(6, 5),
-    prazo INTEGER
+    prazo INTEGER,
+    percentual_reducao NUMERIC(5, 2) DEFAULT NULL -- Para planos reduzidos
 ) RETURNS NUMERIC AS $$
+DECLARE
+    constante NUMERIC(10, 2);
 BEGIN
-    RETURN ((valor_credito * (taxa_administracao + fundo_reserva) + valor_credito) * seguro_vida_parcela + 
-            (valor_credito * (taxa_administracao + fundo_reserva - taxa_antecipacao) + valor_credito) / prazo);
+    IF percentual_reducao IS NOT NULL THEN
+        -- Plano Reduzido
+        constante := valor_credito * (taxa_administracao + fundo_reserva) * percentual_reducao;
+        RETURN (constante / prazo) + (constante * seguro_vida_parcela);
+    ELSE
+        -- Plano Normal
+        RETURN ((valor_credito * (taxa_administracao + fundo_reserva) + valor_credito) * seguro_vida_parcela +
+                (valor_credito * (taxa_administracao + fundo_reserva - taxa_antecipacao) + valor_credito) / prazo);
+    END IF;
 END;
 $$ LANGUAGE plpgsql;
 
-/* PRIMEIRA PARCELA ANTECIPAÇÃO COM SEGURO */
+
+-- 2
+CREATE OR REPLACE FUNCTION calc_parcela_sem_seguro(
+    valor_credito NUMERIC(10, 2),
+    taxa_administracao NUMERIC(6, 5),
+    fundo_reserva NUMERIC(6, 5),
+    taxa_antecipacao NUMERIC(6, 5),
+    prazo INTEGER,
+    percentual_reducao NUMERIC(5, 2) DEFAULT NULL -- Para planos reduzidos
+) RETURNS NUMERIC AS $$
+DECLARE
+    constante NUMERIC(10, 2);
+BEGIN
+    IF percentual_reducao IS NOT NULL THEN
+        -- Plano Reduzido
+        constante := valor_credito * (taxa_administracao + fundo_reserva) * percentual_reducao;
+        RETURN constante / prazo;
+    ELSE
+        -- Plano Normal
+        RETURN (valor_credito * (taxa_administracao + fundo_reserva - taxa_antecipacao) + valor_credito) / prazo;
+    END IF;
+END;
+$$ LANGUAGE plpgsql;
+
+
+--3
 CREATE OR REPLACE FUNCTION calc_primeira_parcela_antecipacao_com_seguro(
-    taxa_antecipacao NUMERIC(6, 5), 
-    valor_credito NUMERIC(10, 2), 
+    taxa_antecipacao NUMERIC(6, 5),
+    valor_credito NUMERIC(10, 2),
     parcela_com_seguro NUMERIC(10, 2)
 ) RETURNS NUMERIC AS $$
 BEGIN
@@ -24,20 +59,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-/* PARCELA SEM SEGURO */
-CREATE OR REPLACE FUNCTION calc_parcela_sem_seguro(
-    valor_credito NUMERIC(10, 2),
-    taxa_administracao NUMERIC(6, 5),
-    fundo_reserva NUMERIC(6, 5),
-    taxa_antecipacao NUMERIC(6, 5),
-    prazo INTEGER
-) RETURNS NUMERIC AS $$
-BEGIN
-    RETURN (valor_credito * (taxa_administracao + fundo_reserva - taxa_antecipacao) + valor_credito) / prazo;
-END;
-$$ LANGUAGE plpgsql;
-
-/* PRIMEIRA PARCELA ANTECIPAÇÃO SEM SEGURO */
+--4
 CREATE OR REPLACE FUNCTION calc_primeira_parcela_antecipacao_sem_seguro(
     taxa_antecipacao NUMERIC(6, 5),
     valor_credito NUMERIC(10, 2),
@@ -48,10 +70,10 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-/* TOTAL LANCE */
+--5
 CREATE OR REPLACE FUNCTION calc_total_lance(
-    lance_recurso_proprio NUMERIC(10, 2), 
-    lance_terceiro NUMERIC(10, 2), 
+    lance_recurso_proprio NUMERIC(10, 2),
+    lance_terceiro NUMERIC(10, 2),
     lance_embutido NUMERIC(10, 2)
 ) RETURNS NUMERIC AS $$
 BEGIN
@@ -59,9 +81,9 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-/* PERCENTUAL LANCE */
+--6
 CREATE OR REPLACE FUNCTION calc_percentual_lance(
-    total_lance NUMERIC(10, 2), 
+    total_lance NUMERIC(10, 2),
     valor_credito NUMERIC(10, 2)
 ) RETURNS NUMERIC AS $$
 BEGIN
@@ -69,10 +91,10 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-/* CRÉDITO ENTREGUE */
+--7 
 CREATE OR REPLACE FUNCTION calc_credito_entregue(
-    valor_credito NUMERIC(10, 2), 
-    lance_terceiro NUMERIC(10, 2), 
+    valor_credito NUMERIC(10, 2),
+    lance_terceiro NUMERIC(10, 2),
     lance_embutido NUMERIC(10, 2)
 ) RETURNS NUMERIC AS $$
 BEGIN
@@ -80,9 +102,9 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-/* PRAZO ATUALIZADO */
+--8
 CREATE OR REPLACE FUNCTION calc_prazo_atualizado(
-    prazo INTEGER, 
+    prazo INTEGER,
     mes_contemplacao INTEGER DEFAULT NULL
 ) RETURNS INTEGER AS $$
 BEGIN
@@ -90,9 +112,9 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-/* VALOR ABATIDO PARCELA */
+--9 
 CREATE OR REPLACE FUNCTION calc_valor_abatido_parcela(
-    total_lance NUMERIC(10, 2), 
+    total_lance NUMERIC(10, 2),
     prazo_atualizado INTEGER
 ) RETURNS NUMERIC AS $$
 BEGIN
@@ -100,9 +122,9 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-/* PARCELA ATUALIZADA COM SEGURO */
+--10
 CREATE OR REPLACE FUNCTION calc_parcela_atualizada_com_seguro(
-    parcela_com_seguro NUMERIC(10, 2), 
+    parcela_com_seguro NUMERIC(10, 2),
     valor_abatido_parcela NUMERIC(10, 2)
 ) RETURNS NUMERIC AS $$
 BEGIN
@@ -110,9 +132,9 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-/* PARCELA ATUALIZADA SEM SEGURO */
+--11
 CREATE OR REPLACE FUNCTION calc_parcela_atualizada_sem_seguro(
-    parcela_sem_seguro NUMERIC(10, 2), 
+    parcela_sem_seguro NUMERIC(10, 2),
     valor_abatido_parcela NUMERIC(10, 2)
 ) RETURNS NUMERIC AS $$
 BEGIN
@@ -120,9 +142,9 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-/* NÚMERO DE PARCELAS ABATIDAS COM SEGURO */
+--12
 CREATE OR REPLACE FUNCTION calc_n_parcelas_abatidas_com_seguro(
-    total_lance NUMERIC(10, 2), 
+    total_lance NUMERIC(10, 2),
     parcela_com_seguro NUMERIC(10, 2)
 ) RETURNS INTEGER AS $$
 BEGIN
@@ -130,9 +152,9 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-/* NÚMERO DE PARCELAS ABATIDAS SEM SEGURO */
+--13
 CREATE OR REPLACE FUNCTION calc_n_parcelas_abatidas_sem_seguro(
-    total_lance NUMERIC(10, 2), 
+    total_lance NUMERIC(10, 2),
     parcela_sem_seguro NUMERIC(10, 2)
 ) RETURNS INTEGER AS $$
 BEGIN
@@ -140,10 +162,10 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-/* PRAZO ATUALIZADO COM ABATIMENTO COM SEGURO */
+--14
 CREATE OR REPLACE FUNCTION calc_prazo_atualizado_com_abatimento_com_seguro(
-    prazo INTEGER, 
-    mes_contemplacao INTEGER, 
+    prazo INTEGER,
+    mes_contemplacao INTEGER,
     n_parcelas_abatidas_com_seguro INTEGER
 ) RETURNS INTEGER AS $$
 BEGIN
@@ -151,10 +173,10 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-/* PRAZO ATUALIZADO COM ABATIMENTO SEM SEGURO */
+--15
 CREATE OR REPLACE FUNCTION calc_prazo_atualizado_com_abatimento_sem_seguro(
-    prazo INTEGER, 
-    mes_contemplacao INTEGER, 
+    prazo INTEGER,
+    mes_contemplacao INTEGER,
     n_parcelas_abatidas_sem_seguro INTEGER
 ) RETURNS INTEGER AS $$
 BEGIN
@@ -162,10 +184,10 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-/* CUSTO EFETIVO TOTAL */
+--16
 CREATE OR REPLACE FUNCTION calc_custo_efetivo_total(
-    valor_credito NUMERIC(10, 2), 
-    taxa_administracao NUMERIC(6, 5), 
+    valor_credito NUMERIC(10, 2),
+    taxa_administracao NUMERIC(6, 5),
     fundo_reserva NUMERIC(6, 5)
 ) RETURNS NUMERIC AS $$
 BEGIN
@@ -173,11 +195,11 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-/* TAXA EFETIVA MENSAL */
+--17
 CREATE OR REPLACE FUNCTION calc_taxa_efetiva_mensal(
-    taxa_administracao NUMERIC(6, 5), 
-    taxa_antecipacao NUMERIC(6, 5), 
-    fundo_reserva NUMERIC(6, 5), 
+    taxa_administracao NUMERIC(6, 5),
+    taxa_antecipacao NUMERIC(6, 5),
+    fundo_reserva NUMERIC(6, 5),
     prazo INTEGER
 ) RETURNS NUMERIC AS $$
 BEGIN
@@ -185,7 +207,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-/* VALOR SEGURO MENSAL */
+--18
 CREATE OR REPLACE FUNCTION calc_valor_seguro_mensal(
     valor_credito NUMERIC(10, 2),
     taxa_administracao NUMERIC(6, 5),
@@ -197,12 +219,12 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-/* VALOR SEGURO TOTAL */
+--19
 CREATE OR REPLACE FUNCTION calc_valor_seguro_total(
     valor_credito NUMERIC(10, 2),
     taxa_administracao NUMERIC(6, 5),
     fundo_reserva NUMERIC(6, 5),
-    seguro_vida_parcela NUMERIC(6, 5), 
+    seguro_vida_parcela NUMERIC(6, 5),
     prazo INTEGER
 ) RETURNS NUMERIC AS $$
 BEGIN

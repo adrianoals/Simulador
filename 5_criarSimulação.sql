@@ -2,9 +2,7 @@ CREATE OR REPLACE FUNCTION criar_simulacao_unificada(
     p_nome_cliente VARCHAR,
     p_email_cliente VARCHAR,
     p_telefone_cliente VARCHAR,
-    p_nome_vendedor VARCHAR,
-    p_email_vendedor VARCHAR,
-    p_telefone_vendedor VARCHAR,
+    p_vendedor_id INTEGER,
     p_bem_id INTEGER,
     p_plano_id INTEGER,
     p_valor_credito NUMERIC(10, 2),
@@ -18,7 +16,6 @@ CREATE OR REPLACE FUNCTION criar_simulacao_unificada(
 DECLARE
     -- IDs e parâmetros principais
     v_cliente_id INTEGER;
-    v_vendedor_id INTEGER;
     v_simulacao_id INTEGER;
     v_taxa_id INTEGER;
     v_taxa_administracao NUMERIC(6, 5);
@@ -46,27 +43,27 @@ DECLARE
     v_valor_seguro_total NUMERIC(10, 2);
     v_custo_efetivo_total NUMERIC(10, 2);
     v_taxa_efetivo_mensal NUMERIC(5, 2);
-    v_constante NUMERIC(10, 2); -- Usado para planos reduzidos
-    v_percentual_reducao NUMERIC(5, 2); -- Percentual de redução para planos reduzidos
+    v_percentual_reducao NUMERIC(5, 2) DEFAULT NULL; -- Percentual para planos reduzidos
 BEGIN
     -- Inserir cliente
-    INSERT INTO cliente (nome, email, telefone)
+    INSERT INTO cliente (nome_cliente, email_cliente, telefone_cliente)
     VALUES (p_nome_cliente, p_email_cliente, p_telefone_cliente)
-    RETURNING id INTO v_cliente_id;
+    RETURNING cliente_id INTO v_cliente_id;
 
-    -- Inserir vendedor
-    INSERT INTO vendedor (nome, email, telefone)
-    VALUES (p_nome_vendedor, p_email_vendedor, p_telefone_vendedor)
-    RETURNING id INTO v_vendedor_id;
+    -- Verificar se o vendedor existe
+    PERFORM 1 FROM vendedor WHERE vendedor_id = p_vendedor_id;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Vendedor com ID % não encontrado.', p_vendedor_id;
+    END IF;
 
     -- Obter detalhes do bem, plano e taxa
     SELECT
         b.fundo_reserva,
         b.seguro_vida_parcela,
-        t.id,
+        t.taxa_id,
         t.taxa_antecipacao,
         t.taxa_administracao,
-        p.descricao
+        p.descricao_plano
     INTO
         v_fundo_reserva,
         v_seguro_vida_parcela,
@@ -76,11 +73,62 @@ BEGIN
         v_descricao_plano
     FROM
         bem b
-        JOIN plano p ON p.id = p_plano_id AND p.bem_id = b.id
-        JOIN taxa t ON t.plano_id = p.id AND t.bem_id = b.id
+        JOIN plano p ON p.plano_id = p_plano_id AND p.bem_id = b.bem_id
+        JOIN taxa t ON t.plano_id = p.plano_id AND t.bem_id = b.bem_id
     WHERE
-        b.id = p_bem_id AND t.prazo = p_prazo
+        b.bem_id = p_bem_id AND t.prazo = p_prazo
     LIMIT 1;
+
+    -- Determinar tipo de plano (Reduzido, Normal ou Alpha)
+    IF POSITION('%' IN v_descricao_plano) > 0 THEN
+        -- Plano Reduzido
+        v_percentual_reducao := CASE 
+                                    WHEN POSITION('25%' IN v_descricao_plano) > 0 THEN 0.25
+                                    WHEN POSITION('50%' IN v_descricao_plano) > 0 THEN 0.50
+                                    ELSE 0.30 -- Default para outros percentuais reduzidos
+                                END;
+    ELSEIF v_descricao_plano = 'Alpha' AND p_bem_id = 1 THEN
+        -- Plano Alpha para imóveis
+        v_parcela_com_seguro := calc_parcela_com_seguro_alpha(
+            p_valor_credito, 
+            v_taxa_administracao, 
+            v_fundo_reserva, 
+            v_seguro_vida_parcela, 
+            v_taxa_antecipacao, 
+            p_prazo
+        );
+        v_parcela_sem_seguro := calc_parcela_sem_seguro_alpha(
+            p_valor_credito, 
+            v_taxa_administracao, 
+            v_fundo_reserva, 
+            v_taxa_antecipacao, 
+            p_prazo
+        );
+    ELSE
+        -- Plano Normal
+        v_parcela_com_seguro := calc_parcela_com_seguro(
+            p_valor_credito, 
+            v_taxa_administracao, 
+            v_fundo_reserva, 
+            v_seguro_vida_parcela, 
+            v_taxa_antecipacao, 
+            p_prazo, 
+            v_percentual_reducao
+        );
+        v_parcela_sem_seguro := calc_parcela_sem_seguro(
+            p_valor_credito, 
+            v_taxa_administracao, 
+            v_fundo_reserva, 
+            v_taxa_antecipacao, 
+            p_prazo, 
+            v_percentual_reducao
+        );
+    END IF;
+
+    -- Calcular valores comuns
+    v_valor_credito_entregue := calc_credito_entregue(p_valor_credito, p_lance_terceiro, p_lance_embutido);
+    v_total_lance := calc_total_lance(p_lance_recurso_proprio, p_lance_terceiro, p_lance_embutido);
+    v_percentual_lance := calc_percentual_lance(v_total_lance, p_valor_credito);
 
     -- Inserir simulação
     INSERT INTO simulacao (
@@ -100,7 +148,7 @@ BEGIN
     VALUES (
         CURRENT_TIMESTAMP,
         v_cliente_id,
-        v_vendedor_id,
+        p_vendedor_id,
         p_bem_id,
         p_plano_id,
         v_taxa_id,
@@ -111,50 +159,16 @@ BEGIN
         p_mes_contemplacao,
         p_vencimento_proposta
     )
-    RETURNING id INTO v_simulacao_id;
-
-    -- Calcular valores comuns
-    v_valor_credito_entregue := calc_credito_entregue(p_valor_credito, p_lance_terceiro, p_lance_embutido);
-    v_total_lance := calc_total_lance(p_lance_recurso_proprio, p_lance_terceiro, p_lance_embutido);
-    v_percentual_lance := calc_percentual_lance(v_total_lance, p_valor_credito);
-
-    -- Determinar tipo de plano e cálculos correspondentes
-    IF POSITION('%' IN v_descricao_plano) > 0 THEN
-        -- Plano Reduzido
-        v_percentual_reducao := CASE 
-                                    WHEN POSITION('25%' IN v_descricao_plano) > 0 THEN 0.25
-                                    WHEN POSITION('50%' IN v_descricao_plano) > 0 THEN 0.50
-                                    ELSE 0.30 -- Default para outros percentuais reduzidos
-                                END;
-        v_constante := calc_constante(p_valor_credito, v_taxa_administracao, v_fundo_reserva, v_taxa_antecipacao, v_percentual_reducao);
-        v_parcela_com_seguro := calc_parcela_reduzida_com_seguro(v_constante, p_prazo, v_valor_seguro_mensal);
-        v_parcela_sem_seguro := calc_parcela_reduzida_sem_seguro(v_constante, p_prazo);
-
-    ELSIF v_descricao_plano = 'Alpha' AND p_bem_id = 1 THEN
-        -- Plano Alpha para imóveis
-        v_parcela_com_seguro := calc_parcela_com_seguro_alpha(p_valor_credito, v_taxa_administracao, v_fundo_reserva, v_seguro_vida_parcela, v_taxa_antecipacao, p_prazo);
-        v_parcela_sem_seguro := calc_parcela_sem_seguro_alpha(p_valor_credito, v_taxa_administracao, v_fundo_reserva, v_taxa_antecipacao, p_prazo);
-
-    ELSE
-        -- Plano Normal
-        v_parcela_com_seguro := calc_parcela_com_seguro(p_valor_credito, v_taxa_administracao, v_fundo_reserva, v_seguro_vida_parcela, v_taxa_antecipacao, p_prazo);
-        v_parcela_sem_seguro := calc_parcela_sem_seguro(p_valor_credito, v_taxa_administracao, v_fundo_reserva, 0, v_taxa_antecipacao, p_prazo);
-    END IF;
-
-    -- Calcular valores adicionais
-    v_primeira_parcela_com_seguro := calc_parcela_antecipacao_com_seguro(v_taxa_antecipacao, p_valor_credito, v_parcela_com_seguro);
-    v_primeira_parcela_sem_seguro := calc_parcela_antecipacao_sem_seguro(v_taxa_antecipacao, p_valor_credito, v_parcela_sem_seguro);
+    RETURNING simulacao_id INTO v_simulacao_id;
 
     -- Inserir resultados
-    INSERT INTO resultado (
+    INSERT INTO resultado_unificado (
         simulacao_id,
         credito_entregue,
         total_lance,
         percentual_lance,
         parcela_com_seguro,
-        parcela_sem_seguro,
-        primeira_parcela_antecipacao_com_seguro,
-        primeira_parcela_antecipacao_sem_seguro
+        parcela_sem_seguro
     )
     VALUES (
         v_simulacao_id,
@@ -162,9 +176,7 @@ BEGIN
         v_total_lance,
         v_percentual_lance,
         v_parcela_com_seguro,
-        v_parcela_sem_seguro,
-        v_primeira_parcela_com_seguro,
-        v_primeira_parcela_sem_seguro
+        v_parcela_sem_seguro
     );
 
     -- Retornar JSON
